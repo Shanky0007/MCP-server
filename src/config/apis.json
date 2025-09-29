@@ -1,0 +1,42 @@
+{
+  "github": {
+    "baseUrl": "https://api.github.com",
+    "authType": "token",
+    "rateLimit": {
+      "requests": 5000,
+      "window": 3600000
+    },
+    "timeout": 10000,
+    "retries": 3
+  },
+  "weather": {
+    "baseUrl": "https://api.openweathermap.org/data/2.5",
+    "authType": "apiKey",
+    "rateLimit": {
+      "requests": 1000,
+      "window": 3600000
+    },
+    "timeout": 5000,
+    "retries": 2
+  },
+  "news": {
+    "baseUrl": "https://newsapi.org/v2",
+    "authType": "apiKey",
+    "rateLimit": {
+      "requests": 1000,
+      "window": 86400000
+    },
+    "timeout": 8000,
+    "retries": 2
+  },
+  "jsonplaceholder": {
+    "baseUrl": "https://jsonplaceholder.typicode.com",
+    "authType": "none",
+    "rateLimit": {
+      "requests": 100,
+      "window": 60000
+    },
+    "timeout": 5000,
+    "retries": 1
+  }
+}
