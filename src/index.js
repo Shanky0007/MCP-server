@@ -6,9 +6,23 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { config, validateConfig } from "./config/settings.js";
 import { GitHubAPI } from "./apis/github.js";
+import { MetricsCollector } from "./middleware/metrics.js";
+import { HttpClient } from "./utils/httpClient.js";
 
-// Initialize APIs
+// Initialize APIs and middleware
 const githubApi = new GitHubAPI();
+const metrics = new MetricsCollector();
+
+// Periodic cache cleanup (every 10 minutes)
+setInterval(() => {
+  const cleaned = HttpClient.getGlobalCache().cleanup();
+  if (cleaned > 0) {
+    console.error(`[CACHE] Cleaned up ${cleaned} expired entries`);
+  }
+  
+  // Update cache metrics
+  metrics.updateCacheMetrics(HttpClient.getGlobalCache().getStats());
+}, 600000);
 
 // Create server instance
 const server = new Server(
@@ -193,6 +207,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     },
                     required: ["repository"]
                 }
+            },
+            {
+                name: "mcp-get-metrics",
+                description: "Get performance metrics and statistics for the MCP server",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        includeCache: {
+                            type: "boolean",
+                            description: "Include detailed cache statistics",
+                            default: true
+                        }
+                    },
+                    required: []
+                }
+            },
+            {
+                name: "mcp-clear-cache",
+                description: "Clear the API response cache",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        confirm: {
+                            type: "boolean",
+                            description: "Confirm cache clearing action",
+                            default: false
+                        }
+                    },
+                    required: ["confirm"]
+                }
             }
         ]
     };
@@ -201,10 +245,16 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     
+    // Start metrics tracking
+    const requestContext = metrics.startRequest('github', name);
+    
     try {
         switch (name) {
             case "github-get-user":
                 const userResult = await githubApi.getUserProfile(args.username);
+                if (userResult.success) {
+                    metrics.recordSuccess(requestContext);
+                }
                 return {
                     content: [
                         {
@@ -224,8 +274,75 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     ]
                 };
 
+            case "mcp-get-metrics":
+                const metricsReport = metrics.getReport();
+                const cacheStats = args.includeCache ? HttpClient.getGlobalCache().getStats() : null;
+                
+                metrics.recordSuccess(requestContext);
+                
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `📊 **MCP Server Performance Metrics**\n\n` +
+                                  `**Summary:**\n` +
+                                  `• Uptime: ${metricsReport.summary.uptime}\n` +
+                                  `• Total Requests: ${metricsReport.summary.totalRequests}\n` +
+                                  `• Success Rate: ${metricsReport.summary.successRate}\n` +
+                                  `• Avg Response Time: ${metricsReport.summary.avgResponseTime}\n\n` +
+                                  `**Performance:**\n` +
+                                  `• Min Response: ${metricsReport.performance.minResponseTime}\n` +
+                                  `• Max Response: ${metricsReport.performance.maxResponseTime}\n` +
+                                  `• Avg Response: ${metricsReport.performance.avgResponseTime}\n\n` +
+                                  `**Requests by Tool:**\n` +
+                                  Object.entries(metricsReport.requests.byTool).map(([tool, stats]) =>
+                                    `• ${tool}: ${stats.total} total (${stats.successful} success, ${stats.failed} failed)`
+                                  ).join('\n') +
+                                  (cacheStats ? `\n\n**Cache Statistics:**\n` +
+                                    `• Hit Rate: ${cacheStats.hitRate}\n` +
+                                    `• Size: ${cacheStats.size}/${cacheStats.maxSize}\n` +
+                                    `• Memory Usage: ${cacheStats.memoryUsage}\n` +
+                                    `• Hits: ${cacheStats.hits}, Misses: ${cacheStats.misses}\n` +
+                                    `• Evictions: ${cacheStats.evictions}` : '')
+                        }
+                    ]
+                };
+
+            case "mcp-clear-cache":
+                if (!args.confirm) {
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: "⚠️ Cache clearing requires confirmation. Set 'confirm: true' to proceed."
+                            }
+                        ]
+                    };
+                }
+                
+                const beforeStats = HttpClient.getGlobalCache().getStats();
+                HttpClient.getGlobalCache().clear();
+                
+                metrics.recordSuccess(requestContext);
+                
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `🗑️ **Cache Cleared Successfully**\n\n` +
+                                  `• Removed ${beforeStats.size} cached items\n` +
+                                  `• Freed ${beforeStats.memoryUsage} of memory\n` +
+                                  `• Previous hit rate: ${beforeStats.hitRate}\n\n` +
+                                  `Cache has been reset and will rebuild as new requests are made.`
+                        }
+                    ]
+                };
+
             case "github-list-repos":
                 const reposResult = await githubApi.listUserRepos(args.username, args);
+                if (reposResult.success) {
+                    metrics.recordSuccess(requestContext);
+                }
                 return {
                     content: [
                         {
@@ -246,6 +363,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             case "github-get-repo":
                 const repoResult = await githubApi.getRepoInfo(args.repository);
+                if (repoResult.success) {
+                    metrics.recordSuccess(requestContext);
+                }
                 return {
                     content: [
                         {
@@ -271,6 +391,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             case "github-search-repos":
                 const searchResult = await githubApi.searchRepos(args.query, args);
+                if (searchResult.success) {
+                    metrics.recordSuccess(requestContext);
+                }
                 return {
                     content: [
                         {
@@ -291,6 +414,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
             case "github-get-issues":
                 const issuesResult = await githubApi.getRepoIssues(args.repository, args);
+                if (issuesResult.success) {
+                    metrics.recordSuccess(requestContext);
+                }
                 return {
                     content: [
                         {
@@ -311,10 +437,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     ]
                 };
 
+            case "mcp-get-metrics":
+                const metricsData = metrics.getReport();
+                metrics.recordSuccess(requestContext);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `🚀 **MCP Server Performance Metrics**\n\n` +
+                                  `**Request Statistics:**\n` +
+                                  `• Total Requests: ${metricsData.requests.total}\n` +
+                                  `• Successful: ${metricsData.requests.successful} (${((metricsData.requests.successful / metricsData.requests.total) * 100).toFixed(1)}%)\n` +
+                                  `• Failed: ${metricsData.requests.failed}\n` +
+                                  `• Average Response Time: ${metricsData.performance.averageResponseTime.toFixed(2)}ms\n\n` +
+                                  `**Cache Performance:**\n` +
+                                  `• Hit Rate: ${(metricsData.cache.hitRate * 100).toFixed(1)}%\n` +
+                                  `• Total Hits: ${metricsData.cache.hits}\n` +
+                                  `• Total Misses: ${metricsData.cache.misses}\n` +
+                                  `• Current Size: ${metricsData.cache.size} items\n` +
+                                  `• Memory Usage: ${metricsData.cache.memoryUsage} bytes\n\n` +
+                                  `**Error Distribution:**\n` +
+                                  Object.entries(metricsData.errors)
+                                    .map(([error, count]) => `• ${error}: ${count}`)
+                                    .join('\n') +
+                                  `\n\n**Server Uptime:** ${Math.floor(metricsData.performance.uptime / 1000)}s`
+                        }
+                    ]
+                };
+
+            case "mcp-clear-cache":
+                const clearedCount = httpClient.getCache().size;
+                httpClient.clearCache();
+                metrics.recordSuccess(requestContext);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: `✅ **Cache Cleared Successfully**\n\n` +
+                                  `• Removed ${clearedCount} cached items\n` +
+                                  `• Memory freed for new requests\n` +
+                                  `• Fresh data will be fetched for next API calls`
+                        }
+                    ]
+                };
+
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
     } catch (error) {
+        // Record failure metrics
+        metrics.recordFailure(requestContext, error);
+        
         return {
             content: [
                 {

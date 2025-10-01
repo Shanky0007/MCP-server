@@ -1,5 +1,12 @@
 import fetch from 'node-fetch';
 import { config } from '../config/settings.js';
+import { AdvancedCache } from '../middleware/cache.js';
+
+// Global cache instance
+const globalCache = new AdvancedCache({
+  maxSize: config.cache.maxSize,
+  defaultTTL: config.cache.ttl
+});
 
 export class HttpClient {
   constructor(apiName) {
@@ -7,6 +14,7 @@ export class HttpClient {
     this.config = config.apis[apiName];
     this.requestCount = 0;
     this.resetTime = Date.now() + this.config.rateLimit.window;
+    this.cache = globalCache;
     
     if (!this.config) {
       throw new Error(`API configuration not found for: ${apiName}`);
@@ -59,9 +67,26 @@ export class HttpClient {
   }
 
   /**
-   * Make HTTP request with retries and error handling
+   * Make HTTP request with retries, error handling, and caching
    */
   async request(endpoint, options = {}) {
+    // Generate cache key
+    const cacheKey = this.cache.generateKey(
+      this.apiName, 
+      endpoint, 
+      { method: options.method || 'GET', ...options.params }
+    );
+    
+    // Check cache for GET requests
+    if (!options.method || options.method === 'GET') {
+      const cachedResponse = this.cache.get(cacheKey);
+      if (cachedResponse) {
+        console.error(`[${this.apiName}] Cache HIT for ${endpoint}`);
+        return cachedResponse;
+      }
+      console.error(`[${this.apiName}] Cache MISS for ${endpoint}`);
+    }
+
     this.checkRateLimit();
     
     const url = `${this.config.baseUrl}${endpoint}`;
@@ -99,6 +124,12 @@ export class HttpClient {
         
         const data = await response.json();
         
+        // Cache successful GET requests
+        if ((!options.method || options.method === 'GET')) {
+          this.cache.set(cacheKey, data, this.getCacheTTL(endpoint));
+          console.error(`[${this.apiName}] Cached response for ${endpoint}`);
+        }
+        
         console.error(`[${this.apiName}] Request successful`);
         return data;
         
@@ -116,6 +147,26 @@ export class HttpClient {
     }
     
     throw lastError;
+  }
+
+  /**
+   * Get appropriate cache TTL based on endpoint
+   */
+  getCacheTTL(endpoint) {
+    // Different endpoints have different cache strategies
+    if (endpoint.includes('/users/') && !endpoint.includes('/repos')) {
+      return 600000; // User profiles: 10 minutes
+    }
+    if (endpoint.includes('/repos/') && !endpoint.includes('/issues')) {
+      return 300000; // Repository info: 5 minutes
+    }
+    if (endpoint.includes('/search/')) {
+      return 180000; // Search results: 3 minutes
+    }
+    if (endpoint.includes('/issues')) {
+      return 60000; // Issues: 1 minute (more dynamic)
+    }
+    return this.cache.defaultTTL; // Default: 5 minutes
   }
 
   /**
@@ -154,5 +205,41 @@ export class HttpClient {
     return this.request(endpoint, {
       method: 'DELETE'
     });
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.cache.getStats();
+  }
+
+  /**
+   * Clear cache
+   */
+  clearCache() {
+    return this.cache.clear();
+  }
+
+  /**
+   * Get the cache instance
+   * @returns {AdvancedCache} The cache instance
+   */
+  getCache() {
+    return this.cache;
+  }
+
+  /**
+   * Clean up expired cache entries
+   */
+  cleanupCache() {
+    return this.cache.cleanup();
+  }
+
+  /**
+   * Get global cache instance (static method)
+   */
+  static getGlobalCache() {
+    return globalCache;
   }
 }
