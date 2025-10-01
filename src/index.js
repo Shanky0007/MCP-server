@@ -328,19 +328,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function startServer() {
-    // Validate configuration
+    // Validate configuration (but don't log to stdout)
     const isConfigValid = validateConfig();
     if (!isConfigValid) {
-        console.warn("Configuration validation failed. Some features may not work properly.");
+        console.error("Configuration validation failed. Some features may not work properly.");
     }
     
-    console.log(`Starting ${config.server.name} v${config.server.version}...`);
-    console.log(`GitHub API: ${config.env.GITHUB_TOKEN ? 'Configured' : 'Not configured (public access only)'}`);
+    // Log to stderr so it doesn't interfere with MCP JSON protocol
+    console.error(`Starting ${config.server.name} v${config.server.version}...`);
+    console.error(`GitHub API: ${config.env.GITHUB_TOKEN ? 'Configured' : 'Not configured (public access only)'}`);
     
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.log("Universal API Gateway MCP Server is running!");
+    console.error("Universal API Gateway MCP Server is running!");
 }
 
 startServer().catch(error => {

@@ -88,7 +88,7 @@ export class HttpClient {
       try {
         this.requestCount++;
         
-        console.log(`[${this.apiName}] ${requestOptions.method} ${url} (attempt ${attempt + 1})`);
+        console.error(`[${this.apiName}] ${requestOptions.method} ${url} (attempt ${attempt + 1})`);
         
         const response = await fetch(url, requestOptions);
         
@@ -99,7 +99,7 @@ export class HttpClient {
         
         const data = await response.json();
         
-        console.log(`[${this.apiName}] Request successful`);
+        console.error(`[${this.apiName}] Request successful`);
         return data;
         
       } catch (error) {
@@ -109,7 +109,7 @@ export class HttpClient {
         if (attempt < this.config.retries - 1) {
           // Exponential backoff
           const waitTime = Math.pow(2, attempt) * 1000;
-          console.log(`[${this.apiName}] Retrying in ${waitTime}ms...`);
+          console.error(`[${this.apiName}] Retrying in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
       }
