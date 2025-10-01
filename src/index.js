@@ -514,7 +514,7 @@ async function startServer() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     
-    console.error("Universal API Gateway MCP Server is running!");
+    console.error("Universal MCP Gateway is running! 🚀");
 }
 
 startServer().catch(error => {

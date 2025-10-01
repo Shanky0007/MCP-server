@@ -26,7 +26,7 @@ export const config = {
   
   // Server configuration
   server: {
-    name: 'Universal API Gateway MCP',
+    name: 'Universal MCP Gateway',
     version: '1.0.0',
     port: process.env.PORT || 3000,
   },
